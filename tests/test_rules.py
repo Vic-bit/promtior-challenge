@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.exceptions import InvalidBooking
-from app.rules import validate_booking
+from app.rules import generate_slots, validate_booking
 
 TZ = ZoneInfo("America/Montevideo")
 NOW = datetime(2026, 10, 15, 9, 0, tzinfo=TZ)
@@ -83,3 +83,24 @@ def test_start_in_the_past_is_rejected():
 
 def test_start_exactly_now_is_allowed():
     book(now=at(10))
+
+
+def test_slots_exclude_the_end_time():
+    assert generate_slots(at(10), at(11, 30)) == [at(10), at(10, 30), at(11)]
+
+
+def test_slot_count_for_min_and_max_duration():
+    assert len(generate_slots(at(10), at(10, 30))) == 1
+    assert len(generate_slots(at(10), at(13))) == 6
+
+
+def test_back_to_back_bookings_share_no_slots():
+    first = set(generate_slots(at(10), at(11, 30)))
+    second = set(generate_slots(at(11, 30), at(12)))
+    assert first.isdisjoint(second)
+
+
+def test_overlapping_bookings_share_a_slot():
+    first = set(generate_slots(at(10), at(11, 30)))
+    second = set(generate_slots(at(11), at(12)))
+    assert first & second == {at(11)}

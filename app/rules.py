@@ -4,7 +4,8 @@ from app.exceptions import InvalidBooking
 
 ROOM_CAPACITY = {"A": 7, "B": 7, "C": 7, "D": 7, "E": 10}
 SLOT_MINUTES = 30
-MIN_DURATION = timedelta(minutes=SLOT_MINUTES)
+SLOT_DURATION = timedelta(minutes=SLOT_MINUTES)
+MIN_DURATION = SLOT_DURATION
 MAX_DURATION = timedelta(hours=3)
 
 
@@ -55,3 +56,13 @@ def validate_booking(room: str, start: datetime, end: datetime, title: str, atte
     validate_alignment(end)
     validate_duration(start, end)
     validate_not_in_past(start, now)
+
+
+def generate_slots(start: datetime, end: datetime) -> list[datetime]:
+    # Half-open range [start, end): `end` is never a slot, so back-to-back bookings don't collide.
+    slots = []
+    current = start
+    while current < end:
+        slots.append(current)
+        current += SLOT_DURATION
+    return slots
