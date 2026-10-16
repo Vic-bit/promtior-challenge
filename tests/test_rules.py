@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.exceptions import InvalidBooking
-from app.rules import generate_slots, validate_booking
+from app.rules import generate_slots, validate_booking, validate_range
 
 TZ = ZoneInfo("America/Montevideo")
 NOW = datetime(2026, 10, 15, 9, 0, tzinfo=TZ)
@@ -104,3 +104,19 @@ def test_overlapping_bookings_share_a_slot():
     first = set(generate_slots(at(10), at(11, 30)))
     second = set(generate_slots(at(11), at(12)))
     assert first & second == {at(11)}
+
+
+def test_range_longer_than_three_hours_is_allowed_for_queries():
+    validate_range(at(9), at(14))
+
+
+def test_misaligned_range_is_rejected():
+    with pytest.raises(InvalidBooking) as error:
+        validate_range(at(9, 15), at(10))
+    assert error.value.code == "misaligned_time"
+
+
+def test_inverted_range_is_rejected():
+    with pytest.raises(InvalidBooking) as error:
+        validate_range(at(11), at(10))
+    assert error.value.code == "invalid_range"

@@ -6,7 +6,14 @@ import psycopg
 from app.config import settings
 from app.db import get_conn
 from app.exceptions import BookingNotFound, NotBookingOwner, SlotConflict
-from app.rules import generate_slots, validate_booking
+from app.rules import (
+    ROOM_CAPACITY,
+    SLOT_DURATION,
+    generate_slots,
+    validate_booking,
+    validate_range,
+    validate_room,
+)
 
 TZ = ZoneInfo(settings.timezone)
 
@@ -73,3 +80,36 @@ def list_my_bookings(user_id: int) -> list[dict]:
             " ORDER BY start_time",
             (user_id,),
         ).fetchall()
+
+
+def list_available_rooms(start: datetime, end: datetime, attendees: int | None = None) -> list[dict]:
+    start, end = to_local(start), to_local(end)
+    validate_range(start, end)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT room FROM booking_slots WHERE slot_start >= %s AND slot_start < %s",
+            (start, end),
+        ).fetchall()
+    # A room with even one taken slot in the range is not available.
+    busy = {row["room"] for row in rows}
+    return [
+        {"room": room, "capacity": capacity}
+        for room, capacity in ROOM_CAPACITY.items()
+        if room not in busy and (attendees is None or capacity >= attendees)
+    ]
+
+
+def get_room_schedule(room: str, start: datetime, end: datetime) -> list[dict]:
+    start, end = to_local(start), to_local(end)
+    validate_room(room)
+    validate_range(start, end)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT slot_start FROM booking_slots WHERE room = %s AND slot_start >= %s AND slot_start < %s",
+            (room, start, end),
+        ).fetchall()
+    taken = {row["slot_start"] for row in rows}
+    return [
+        {"start": slot, "end": slot + SLOT_DURATION, "available": slot not in taken}
+        for slot in generate_slots(start, end)
+    ]

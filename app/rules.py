@@ -58,6 +58,14 @@ def validate_booking(room: str, start: datetime, end: datetime, title: str, atte
     validate_not_in_past(start, now)
 
 
+def validate_range(start: datetime, end: datetime) -> None:
+    # For queries (availability, schedule): same alignment as bookings, but no 3-hour cap.
+    validate_alignment(start)
+    validate_alignment(end)
+    if end <= start:
+        raise InvalidBooking("invalid_range", "The end time must be after the start time.")
+
+
 def generate_slots(start: datetime, end: datetime) -> list[datetime]:
     # Half-open range [start, end): `end` is never a slot, so back-to-back bookings don't collide.
     slots = []

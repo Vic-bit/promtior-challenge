@@ -4,7 +4,13 @@ from zoneinfo import ZoneInfo
 import psycopg
 import pytest
 
-from app.booking import cancel_booking, create_booking, list_my_bookings
+from app.booking import (
+    cancel_booking,
+    create_booking,
+    get_room_schedule,
+    list_available_rooms,
+    list_my_bookings,
+)
 from app.db import get_conn, init_db
 from app.exceptions import BookingNotFound, InvalidBooking, NotBookingOwner, SlotConflict
 
@@ -133,3 +139,46 @@ def test_list_my_bookings_shows_only_my_active_unfinished_bookings(db):
         )
 
     assert [b["id"] for b in list_my_bookings(user_id("User1"))] == [mine["id"]]
+
+
+def available(start, end, attendees=None) -> list[str]:
+    return [r["room"] for r in list_available_rooms(start, end, attendees)]
+
+
+def test_booked_room_is_not_available_in_its_range(db):
+    book(room="A", start=at(10), end=at(11))
+    assert available(at(10), at(11)) == ["B", "C", "D", "E"]
+
+
+def test_room_is_available_right_after_a_booking_ends(db):
+    book(room="A", start=at(10), end=at(11))
+    assert available(at(11), at(12)) == ["A", "B", "C", "D", "E"]
+
+
+def test_partial_overlap_makes_room_unavailable(db):
+    book(room="A", start=at(10), end=at(11))
+    assert "A" not in available(at(10, 30), at(11, 30))
+
+
+def test_available_rooms_filter_by_capacity(db):
+    assert available(at(10), at(11), attendees=8) == ["E"]
+    assert available(at(10), at(11), attendees=11) == []
+
+
+def test_cancelled_booking_makes_room_available_again(db):
+    booking = book(room="A", start=at(10), end=at(11))
+    cancel_booking(user_id("User1"), booking["id"])
+    assert "A" in available(at(10), at(11))
+
+
+def test_room_schedule_marks_free_and_taken_slots(db):
+    book(room="A", start=at(10), end=at(11))
+    schedule = get_room_schedule("A", at(9, 30), at(11, 30))
+    assert [s["start"] for s in schedule] == [at(9, 30), at(10), at(10, 30), at(11)]
+    assert [s["available"] for s in schedule] == [True, False, False, True]
+    assert schedule[0]["end"] == at(10)
+
+
+def test_room_schedule_rejects_unknown_room(db):
+    with pytest.raises(InvalidBooking):
+        get_room_schedule("F", at(10), at(11))
