@@ -1,3 +1,5 @@
+"""Password hashing and JWT handling."""
+
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -16,16 +18,19 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    """Check a plain password against its bcrypt hash."""
     return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 def create_token(user_id: int, username: str) -> str:
+    """Return a signed JWT with the user id (`sub`), username and expiration."""
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(user_id), "username": username, "exp": expires}
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+    """FastAPI dependency: read the Bearer token and return the user, or respond 401."""
     try:
         # Fixing the accepted algorithm stops a token from choosing its own (e.g. "none").
         payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=[ALGORITHM])
