@@ -1,3 +1,5 @@
+"""Database access: connections, schema creation and user seed."""
+
 from pathlib import Path
 
 import psycopg
@@ -12,7 +14,10 @@ SEED_PASSWORD = "TechnicalChallengePromtior"
 
 
 def get_conn() -> psycopg.Connection:
-    # Used as `with get_conn() as conn:` -> commits on success, rolls back on error.
+    """Open a new connection that returns rows as dicts.
+
+    Use it as `with get_conn() as conn:` -> commits on success, rolls back on error.
+    """
     # The session time zone makes Postgres return office time instead of UTC.
     return psycopg.connect(
         settings.database_url,
@@ -22,6 +27,7 @@ def get_conn() -> psycopg.Connection:
 
 
 def init_db() -> None:
+    """Create the tables if missing and seed User1 and User2. Safe to run on every startup."""
     with get_conn() as conn:
         conn.execute(SCHEMA_PATH.read_text())
         for username in SEED_USERS:

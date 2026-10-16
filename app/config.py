@@ -1,3 +1,5 @@
+"""Settings read from environment variables or the .env file."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

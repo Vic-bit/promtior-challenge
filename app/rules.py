@@ -1,3 +1,5 @@
+"""Pure booking rules: no database, no LLM. Every violation raises InvalidBooking."""
+
 from datetime import datetime, timedelta
 
 from app.exceptions import InvalidBooking
@@ -20,6 +22,7 @@ def validate_title(title: str) -> None:
 
 
 def validate_attendees(room: str, attendees: int) -> None:
+    """Require between 1 attendee and the room's capacity."""
     if attendees < 1:
         raise InvalidBooking("invalid_attendees", "A booking needs at least 1 attendee.")
     capacity = ROOM_CAPACITY[room]
@@ -31,23 +34,29 @@ def validate_attendees(room: str, attendees: int) -> None:
 
 
 def validate_alignment(moment: datetime) -> None:
+    """Require the time to fall exactly on :00 or :30, with no seconds."""
     if moment.minute not in (0, SLOT_MINUTES) or moment.second or moment.microsecond:
         raise InvalidBooking("misaligned_time", f"{moment:%H:%M} is not on a 30-minute boundary (:00 or :30).")
 
 
 def validate_duration(start: datetime, end: datetime) -> None:
+    """Require a booking length between 30 minutes and 3 hours."""
     duration = end - start
     if duration < MIN_DURATION or duration > MAX_DURATION:
         raise InvalidBooking("invalid_duration", "A booking must last between 30 minutes and 3 hours.")
 
 
 def validate_not_in_past(start: datetime, now: datetime) -> None:
-    # `now` is a parameter so the rule stays pure and testable at any time of day.
+    """Reject bookings starting before `now`.
+
+    `now` is a parameter so the rule stays pure and testable at any time of day.
+    """
     if start < now:
         raise InvalidBooking("start_in_past", "A booking cannot start in the past.")
 
 
 def validate_booking(room: str, start: datetime, end: datetime, title: str, attendees: int, now: datetime) -> None:
+    """Run every booking rule; raise InvalidBooking on the first one that fails."""
     # Room goes first because the attendee check needs its capacity.
     validate_room(room)
     validate_title(title)
@@ -59,7 +68,10 @@ def validate_booking(room: str, start: datetime, end: datetime, title: str, atte
 
 
 def validate_range(start: datetime, end: datetime) -> None:
-    # For queries (availability, schedule): same alignment as bookings, but no 3-hour cap.
+    """Validate a query range (availability, schedule).
+
+    Same alignment as bookings, but no 3-hour cap and no past check: querying is not booking.
+    """
     validate_alignment(start)
     validate_alignment(end)
     if end <= start:
@@ -67,7 +79,10 @@ def validate_range(start: datetime, end: datetime) -> None:
 
 
 def generate_slots(start: datetime, end: datetime) -> list[datetime]:
-    # Half-open range [start, end): `end` is never a slot, so back-to-back bookings don't collide.
+    """Return the start of every 30-minute slot in [start, end).
+
+    The range is half-open: `end` is never a slot, so back-to-back bookings don't collide.
+    """
     slots = []
     current = start
     while current < end:

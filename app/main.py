@@ -1,3 +1,5 @@
+"""FastAPI application: HTTP endpoints."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, status
@@ -9,6 +11,7 @@ from app.db import get_conn, init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Prepare the database before the app starts serving requests."""
     init_db()
     yield
 
@@ -23,11 +26,13 @@ class LoginRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness check for the deploy platform."""
     return {"status": "ok"}
 
 
 @app.post("/auth/login")
 def login(body: LoginRequest) -> dict:
+    """Exchange username and password for a JWT access token."""
     with get_conn() as conn:
         user = conn.execute(
             "SELECT id, username, password_hash FROM users WHERE username = %s",

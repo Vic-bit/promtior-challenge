@@ -1,3 +1,5 @@
+"""Booking service: applies the rules, runs the SQL and raises domain exceptions."""
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -19,13 +21,17 @@ TZ = ZoneInfo(settings.timezone)
 
 
 def to_local(moment: datetime) -> datetime:
-    # The LLM may send "2026-10-16T10:00" with no offset: we read it as office time.
+    """Convert a datetime to office time.
+
+    The LLM may send "2026-10-16T10:00" with no offset: it is read as office time.
+    """
     if moment.tzinfo is None:
         return moment.replace(tzinfo=TZ)
     return moment.astimezone(TZ)
 
 
 def create_booking(user_id: int, room: str, start: datetime, end: datetime, title: str, attendees: int) -> dict:
+    """Validate and save a booking with one row per 30-minute slot; raise SlotConflict if any slot is taken."""
     start, end, title = to_local(start), to_local(end), title.strip()
     validate_booking(room, start, end, title, attendees, now=datetime.now(TZ))
 
@@ -52,6 +58,7 @@ def create_booking(user_id: int, room: str, start: datetime, end: datetime, titl
 
 
 def cancel_booking(user_id: int, booking_id: int) -> dict:
+    """Cancel an active booking owned by the user and free its slots."""
     with get_conn() as conn:
         booking = conn.execute(
             "SELECT user_id FROM bookings WHERE id = %s AND status = 'active'",
@@ -67,12 +74,12 @@ def cancel_booking(user_id: int, booking_id: int) -> dict:
             " RETURNING id, room, title, attendees, start_time, end_time, status",
             (booking_id,),
         ).fetchone()
-        # Deleting the slots is what frees the room for new bookings.
         conn.execute("DELETE FROM booking_slots WHERE booking_id = %s", (booking_id,))
     return cancelled
 
 
 def list_my_bookings(user_id: int) -> list[dict]:
+    """Return the user's active bookings that have not ended yet, earliest first."""
     with get_conn() as conn:
         return conn.execute(
             "SELECT id, room, title, attendees, start_time, end_time, status FROM bookings"
@@ -83,6 +90,7 @@ def list_my_bookings(user_id: int) -> list[dict]:
 
 
 def list_available_rooms(start: datetime, end: datetime, attendees: int | None = None) -> list[dict]:
+    """Return rooms with every slot free in [start, end), optionally only those that fit the attendees."""
     start, end = to_local(start), to_local(end)
     validate_range(start, end)
     with get_conn() as conn:
@@ -90,7 +98,6 @@ def list_available_rooms(start: datetime, end: datetime, attendees: int | None =
             "SELECT DISTINCT room FROM booking_slots WHERE slot_start >= %s AND slot_start < %s",
             (start, end),
         ).fetchall()
-    # A room with even one taken slot in the range is not available.
     busy = {row["room"] for row in rows}
     return [
         {"room": room, "capacity": capacity}
@@ -100,6 +107,7 @@ def list_available_rooms(start: datetime, end: datetime, attendees: int | None =
 
 
 def get_room_schedule(room: str, start: datetime, end: datetime) -> list[dict]:
+    """Return each 30-minute slot of the room in [start, end) marked as available or not."""
     start, end = to_local(start), to_local(end)
     validate_room(room)
     validate_range(start, end)
