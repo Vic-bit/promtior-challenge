@@ -13,7 +13,12 @@ SEED_PASSWORD = "TechnicalChallengePromtior"
 
 def get_conn() -> psycopg.Connection:
     # Used as `with get_conn() as conn:` -> commits on success, rolls back on error.
-    return psycopg.connect(settings.database_url, row_factory=dict_row)
+    # The session time zone makes Postgres return office time instead of UTC.
+    return psycopg.connect(
+        settings.database_url,
+        row_factory=dict_row,
+        options=f"-c timezone={settings.timezone}",
+    )
 
 
 def init_db() -> None:
