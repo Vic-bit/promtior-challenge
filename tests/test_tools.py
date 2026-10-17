@@ -1,6 +1,11 @@
+import json
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from langchain_core.messages import AIMessage, HumanMessage
+
+from app import agent
+from app.agent import system_prompt
 from app.tools import (
     SUGGESTIONS,
     cancel_booking,
@@ -95,3 +100,32 @@ def test_get_room_schedule_tool(db):
     book(room="A", start=at(10), end=at(10, 30))
     result = get_room_schedule.invoke({"room": "A", "start": at(9, 30), "end": at(10, 30)})
     assert [s["available"] for s in result["slots"]] == [True, False]
+
+
+def test_system_prompt_includes_current_date_and_weekday():
+    prompt = system_prompt(datetime(2026, 10, 15, 9, 0, tzinfo=TZ))
+    assert "jueves 2026-10-15 09:00" in prompt
+    assert "America/Montevideo" in prompt
+
+
+class FakeModel:
+    """Stands in for Groq: returns the given replies in order, so the graph runs without an LLM."""
+
+    def __init__(self, replies):
+        self.replies = iter(replies)
+
+    def invoke(self, messages):
+        return next(self.replies)
+
+
+def test_graph_runs_the_requested_tool_with_the_user_from_config(db, monkeypatch):
+    book(username="User1", room="A")
+    tool_call = AIMessage("", tool_calls=[{"name": "list_my_bookings", "args": {}, "id": "call_1"}])
+    monkeypatch.setattr(agent, "model", FakeModel([tool_call, AIMessage("Tienes una reserva en la sala A.")]))
+
+    config = {"configurable": {"thread_id": "test", **config_for("User1")["configurable"]}}
+    result = agent.booking_agent.invoke({"messages": [HumanMessage("¿Qué reservas tengo?")]}, config)
+
+    tool_result = json.loads(result["messages"][2].content)
+    assert [b["room"] for b in tool_result["bookings"]] == ["A"]
+    assert result["messages"][-1].content == "Tienes una reserva en la sala A."
