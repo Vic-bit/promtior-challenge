@@ -79,3 +79,12 @@ def test_agent_failure_returns_503(client, monkeypatch):
 def test_empty_message_is_rejected(client):
     response = send(client, "User1", message="")
     assert response.status_code == 422
+
+
+def test_tool_calls_are_logged(client, monkeypatch, caplog):
+    listing = AIMessage("", tool_calls=[{"name": "list_my_bookings", "id": "c1", "args": {}}])
+    monkeypatch.setattr(agent, "model", FakeModel([listing, AIMessage("No tienes reservas.")]))
+    with caplog.at_level("INFO", logger="app.main"):
+        send(client, "User1", session_id="logs")
+    assert "tool call list_my_bookings {}" in caplog.text
+    assert 'tool result {"ok": true, "bookings": []}' in caplog.text
