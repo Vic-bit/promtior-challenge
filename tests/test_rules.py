@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -120,3 +120,42 @@ def test_inverted_range_is_rejected():
     with pytest.raises(InvalidBooking) as error:
         validate_range(at(11), at(10))
     assert error.value.code == "invalid_range"
+
+
+def test_booking_at_opening_and_closing_time_is_allowed():
+    book(start=at(8), end=at(9))
+    book(start=at(17), end=at(18))
+
+
+@pytest.mark.parametrize("start,end", [
+    (at(7, 30), at(9)),     # starts before opening
+    (at(17), at(18, 30)),   # ends after closing
+    (at(6), at(8)),         # ends right at opening, but starts before
+])
+def test_booking_outside_office_hours_is_rejected(start, end):
+    assert_rejected("outside_office_hours", start=start, end=end)
+
+
+@pytest.mark.parametrize("day", [17, 18])  # Saturday and Sunday
+def test_weekend_booking_is_rejected(day):
+    saturday_or_sunday = datetime(2026, 10, day, 10, 0, tzinfo=TZ)
+    assert_rejected("closed_day", start=saturday_or_sunday, end=saturday_or_sunday.replace(hour=11))
+
+
+def test_query_outside_office_hours_is_rejected():
+    with pytest.raises(InvalidBooking) as error:
+        validate_range(at(3), at(4))
+    assert error.value.code == "outside_office_hours"
+
+
+def test_query_running_into_the_next_day_is_rejected():
+    with pytest.raises(InvalidBooking) as error:
+        validate_range(at(8), at(8) + timedelta(days=1))
+    assert error.value.code == "outside_office_hours"
+
+
+def test_weekend_query_is_rejected():
+    saturday = datetime(2026, 10, 17, 8, 0, tzinfo=TZ)
+    with pytest.raises(InvalidBooking) as error:
+        validate_range(saturday, saturday.replace(hour=18))
+    assert error.value.code == "closed_day"

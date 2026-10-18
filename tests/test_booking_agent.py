@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from string import Formatter
 from zoneinfo import ZoneInfo
 
@@ -20,10 +20,17 @@ from app.db import get_conn
 TZ = ZoneInfo("America/Montevideo")
 
 
+def next_weekday() -> date:
+    """The next day the office is open, so tests never land on a weekend."""
+    day = datetime.now(TZ).date() + timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
 def at(hour: int, minute: int = 0) -> str:
-    """Tomorrow at the given time, as the ISO string the LLM would send."""
-    tomorrow = datetime.now(TZ).date() + timedelta(days=1)
-    return datetime.combine(tomorrow, time(hour, minute)).strftime("%Y-%m-%dT%H:%M")
+    """The next weekday at the given time, as the ISO string the LLM would send."""
+    return datetime.combine(next_weekday(), time(hour, minute)).strftime("%Y-%m-%dT%H:%M")
 
 
 def config_for(username: str) -> dict:
@@ -41,7 +48,7 @@ def test_every_error_code_has_a_suggestion():
     codes = {
         "invalid_datetime", "invalid_room", "empty_title", "invalid_attendees", "capacity_exceeded",
         "misaligned_time", "invalid_duration", "start_in_past", "invalid_range", "slot_conflict",
-        "booking_not_found", "not_booking_owner",
+        "booking_not_found", "not_booking_owner", "outside_office_hours", "closed_day",
     }
     assert codes == set(SUGGESTIONS)
 
@@ -120,14 +127,15 @@ def test_group_slots_merges_back_to_back_slots():
 
 
 def test_free_day_is_a_single_range(db):
-    result = get_room_schedule.invoke({"room": "C", "start": at(0), "end": at(23, 30)})
-    assert result["ranges"] == [{"start": at(0), "end": at(23, 30), "available": True}]
+    result = get_room_schedule.invoke({"room": "C", "start": at(8), "end": at(18)})
+    assert result["ranges"] == [{"start": at(8), "end": at(18), "available": True}]
 
 
 def test_system_prompt_includes_current_date_and_weekday():
     prompt = system_prompt(datetime(2026, 10, 15, 9, 0, tzinfo=TZ))
     assert "jueves 2026-10-15 09:00" in prompt
     assert "America/Montevideo" in prompt
+    assert "Horario de la oficina: lunes a viernes de 08:00 a 18:00." in prompt
     assert "- jueves 15/10 (hoy): 2026-10-15" in prompt
     assert "- viernes 16/10 (mañana): 2026-10-16" in prompt
     assert "- domingo 18/10: 2026-10-18" in prompt
@@ -164,3 +172,10 @@ def test_prompt_variables_match_its_placeholders():
 
 def test_graph_is_named_booking_agent():
     assert booking_agent.name == "booking_agent"
+
+
+def test_weekend_booking_returns_structured_error(db):
+    saturday = date(2026, 10, 24)
+    result = book(start=f"{saturday}T10:00", end=f"{saturday}T11:00")
+    assert result["error"] == "closed_day"
+    assert result["suggestions"] == [SUGGESTIONS["closed_day"]]
