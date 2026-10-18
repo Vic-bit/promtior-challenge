@@ -14,7 +14,7 @@ PASSWORD = "TechnicalChallengePromtior"
 
 
 @pytest.fixture
-def client():
+def client(db):
     # The `with` block runs the app's startup, which creates the tables and seeds the users.
     with TestClient(app) as client:
         yield client
