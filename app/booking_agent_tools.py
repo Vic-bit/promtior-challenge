@@ -37,8 +37,26 @@ def parse(value: str) -> datetime:
 
 
 def to_json(row: dict) -> dict:
-    """Return a copy of a database row with datetimes as ISO strings, since JSON has no date type."""
-    return {key: value.isoformat() if isinstance(value, datetime) else value for key, value in row.items()}
+    """Return a copy of a row with datetimes as short ISO strings, since JSON has no date type.
+
+    "2026-10-18T10:00" instead of "2026-10-18T10:00:00-03:00": seconds are always zero and every
+    time is office time, so the short form says the same with fewer tokens.
+    """
+    return {
+        key: value.strftime("%Y-%m-%dT%H:%M") if isinstance(value, datetime) else value
+        for key, value in row.items()
+    }
+
+
+def group_slots(slots: list[dict]) -> list[dict]:
+    """Merge back-to-back slots with the same availability into ranges, so a day fits in a few lines."""
+    ranges = []
+    for slot in slots:
+        if ranges and ranges[-1]["available"] == slot["available"]:
+            ranges[-1]["end"] = slot["end"]
+        else:
+            ranges.append(dict(slot))
+    return ranges
 
 
 def error(exc: BookingError) -> dict:
@@ -66,14 +84,14 @@ def list_available_rooms(start: str, end: str, attendees: int | None = None) -> 
 
 @tool
 def get_room_schedule(room: Room, start: str, end: str) -> dict:
-    """Muestra la agenda de una sala: cada slot de 30 minutos en [start, end) y si está libre.
+    """Muestra la agenda de una sala en [start, end) como franjas seguidas libres u ocupadas.
 
     start y end son fechas ISO 8601 en hora de la oficina, por ejemplo 2026-10-17T09:00.
     Deben caer en :00 o :30.
     """
     try:
         slots = booking.get_room_schedule(room, parse(start), parse(end))
-        return {"ok": True, "room": room, "slots": [to_json(slot) for slot in slots]}
+        return {"ok": True, "room": room, "ranges": [to_json(r) for r in group_slots(slots)]}
     except BookingError as exc:
         return error(exc)
 

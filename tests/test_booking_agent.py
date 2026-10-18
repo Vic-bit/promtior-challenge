@@ -11,6 +11,7 @@ from app.booking_agent_tools import (
     cancel_booking,
     create_booking,
     get_room_schedule,
+    group_slots,
     list_available_rooms,
     list_my_bookings,
 )
@@ -22,7 +23,7 @@ TZ = ZoneInfo("America/Montevideo")
 def at(hour: int, minute: int = 0) -> str:
     """Tomorrow at the given time, as the ISO string the LLM would send."""
     tomorrow = datetime.now(TZ).date() + timedelta(days=1)
-    return datetime.combine(tomorrow, time(hour, minute)).isoformat()
+    return datetime.combine(tomorrow, time(hour, minute)).strftime("%Y-%m-%dT%H:%M")
 
 
 def config_for(username: str) -> dict:
@@ -53,8 +54,7 @@ def test_user_id_is_not_visible_to_the_llm():
 def test_create_booking_returns_iso_dates(db):
     result = book(start=at(10), end=at(11))
     assert result["ok"] is True
-    assert result["booking"]["start_time"].startswith(at(10))
-    assert result["booking"]["start_time"].endswith("-03:00")
+    assert result["booking"]["start_time"] == at(10)
 
 
 def test_conflict_returns_structured_error(db):
@@ -99,7 +99,29 @@ def test_list_available_rooms_tool(db):
 def test_get_room_schedule_tool(db):
     book(room="A", start=at(10), end=at(10, 30))
     result = get_room_schedule.invoke({"room": "A", "start": at(9, 30), "end": at(10, 30)})
-    assert [s["available"] for s in result["slots"]] == [True, False]
+    assert result["ranges"] == [
+        {"start": at(9, 30), "end": at(10), "available": True},
+        {"start": at(10), "end": at(10, 30), "available": False},
+    ]
+
+
+def test_group_slots_merges_back_to_back_slots():
+    slots = [
+        {"start": 1, "end": 2, "available": True},
+        {"start": 2, "end": 3, "available": True},
+        {"start": 3, "end": 4, "available": False},
+        {"start": 4, "end": 5, "available": True},
+    ]
+    assert group_slots(slots) == [
+        {"start": 1, "end": 3, "available": True},
+        {"start": 3, "end": 4, "available": False},
+        {"start": 4, "end": 5, "available": True},
+    ]
+
+
+def test_free_day_is_a_single_range(db):
+    result = get_room_schedule.invoke({"room": "C", "start": at(0), "end": at(23, 30)})
+    assert result["ranges"] == [{"start": at(0), "end": at(23, 30), "available": True}]
 
 
 def test_system_prompt_includes_current_date_and_weekday():

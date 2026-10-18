@@ -24,6 +24,7 @@ model = ChatGroq(
     api_key=settings.groq_api_key,
     temperature=0,
     max_retries=3,
+    reasoning_effort="low",
 ).bind_tools(TOOLS)
 
 

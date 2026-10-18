@@ -1,14 +1,3 @@
-# Prompts del asistente de reservas. Un solo archivo, versionado junto al código.
-#
-# Cada prompt lleva estos campos:
-#   variables      valores que se inyectan con {llaves} en cada turno
-#   last_modified  última fecha de modificación
-#   prompt         el texto que recibe el LLM
-#
-# El texto se completa con str.format(): no puede haber llaves literales fuera de las
-# variables declaradas (ni siquiera en un ejemplo tipo JSON). Un test lo verifica.
-# El modelo no va acá: sale de las variables de entorno (AGENT_MODEL).
-
 booking_agent_prompt:
   variables: [now, timezone, calendar]
   last_modified: 2026-10-18
@@ -84,7 +73,6 @@ booking_agent_prompt:
     - Responde siempre en español, de forma breve y clara.
     - Escribe en texto plano, sin Markdown. Para listas usa guiones simples.
     - Muestra las fechas como "viernes 17/10" y las horas en formato 24 h, por ejemplo 10:00–11:30.
-    - En una agenda, agrupa los slots seguidos: "libre de 09:00 a 11:00" en lugar de cada slot.
     - Nunca muestres JSON, nombres de herramientas ni ids de reservas al usuario. Identifica cada
       reserva por sala, fecha y hora.
     </formato_salida>
