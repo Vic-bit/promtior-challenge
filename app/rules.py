@@ -1,6 +1,6 @@
 """Pure booking rules: no database, no LLM. Every violation raises InvalidBooking."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from app.exceptions import InvalidBooking
 
@@ -9,6 +9,8 @@ SLOT_MINUTES = 30
 SLOT_DURATION = timedelta(minutes=SLOT_MINUTES)
 MIN_DURATION = SLOT_DURATION
 MAX_DURATION = timedelta(hours=3)
+OFFICE_OPEN = time(8, 0)
+OFFICE_CLOSE = time(18, 0)
 
 
 def validate_room(room: str) -> None:
@@ -55,6 +57,17 @@ def validate_not_in_past(start: datetime, now: datetime) -> None:
         raise InvalidBooking("start_in_past", "A booking cannot start in the past.")
 
 
+def validate_office_hours(start: datetime, end: datetime) -> None:
+    """Require the whole range on a weekday, between OFFICE_OPEN and OFFICE_CLOSE."""
+    if start.weekday() >= 5:
+        raise InvalidBooking("closed_day", "The office is open Monday to Friday.")
+    if start.time() < OFFICE_OPEN or end.time() > OFFICE_CLOSE or end.date() != start.date():
+        raise InvalidBooking(
+            "outside_office_hours",
+            f"The office is open from {OFFICE_OPEN:%H:%M} to {OFFICE_CLOSE:%H:%M}.",
+        )
+
+
 def validate_booking(room: str, start: datetime, end: datetime, title: str, attendees: int, now: datetime) -> None:
     """Run every booking rule; raise InvalidBooking on the first one that fails."""
     # Room goes first because the attendee check needs its capacity.
@@ -64,18 +77,21 @@ def validate_booking(room: str, start: datetime, end: datetime, title: str, atte
     validate_alignment(start)
     validate_alignment(end)
     validate_duration(start, end)
+    validate_office_hours(start, end)
     validate_not_in_past(start, now)
 
 
 def validate_range(start: datetime, end: datetime) -> None:
     """Validate a query range (availability, schedule).
 
-    Same alignment as bookings, but no 3-hour cap and no past check: querying is not booking.
+    Same alignment and office hours as bookings, but no 3-hour cap and no past check:
+    querying is not booking.
     """
     validate_alignment(start)
     validate_alignment(end)
     if end <= start:
         raise InvalidBooking("invalid_range", "The end time must be after the start time.")
+    validate_office_hours(start, end)
 
 
 def generate_slots(start: datetime, end: datetime) -> list[datetime]:

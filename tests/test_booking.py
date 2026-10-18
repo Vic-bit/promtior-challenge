@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import psycopg
@@ -17,10 +17,17 @@ from app.exceptions import BookingNotFound, InvalidBooking, NotBookingOwner, Slo
 TZ = ZoneInfo("America/Montevideo")
 
 
+def next_weekday() -> date:
+    """The next day the office is open, so tests never land on a weekend."""
+    day = datetime.now(TZ).date() + timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
 def at(hour: int, minute: int = 0) -> datetime:
-    # Tomorrow, so tests never hit the "start in the past" rule.
-    tomorrow = datetime.now(TZ).date() + timedelta(days=1)
-    return datetime.combine(tomorrow, time(hour, minute), tzinfo=TZ)
+    # The next weekday, so tests never hit the "start in the past" or weekend rules.
+    return datetime.combine(next_weekday(), time(hour, minute), tzinfo=TZ)
 
 
 def user_id(username: str) -> int:
@@ -130,12 +137,12 @@ def test_list_my_bookings_shows_only_my_active_unfinished_bookings(db):
     cancel_booking(user_id("User1"), cancelled["id"])
     book(username="User2", room="C", start=at(10), end=at(11))
     # A finished booking can't be created through the service, so it is inserted directly.
-    yesterday = at(10) - timedelta(days=2)
+    finished = datetime.now(TZ).replace(second=0, microsecond=0) - timedelta(days=2)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO bookings (user_id, room, title, attendees, start_time, end_time)"
             " VALUES (%s, 'D', 'Old', 2, %s, %s)",
-            (user_id("User1"), yesterday, yesterday + timedelta(hours=1)),
+            (user_id("User1"), finished, finished + timedelta(hours=1)),
         )
 
     assert [b["id"] for b in list_my_bookings(user_id("User1"))] == [mine["id"]]

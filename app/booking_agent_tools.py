@@ -21,6 +21,8 @@ SUGGESTIONS = {
     "misaligned_time": "Ofrece el horario más cercano que empiece en :00 o :30.",
     "invalid_duration": "La reserva debe durar entre 30 minutos y 3 horas; ofrece ajustar el horario.",
     "start_in_past": "Pide al usuario una fecha y hora futuras.",
+    "outside_office_hours": "Ofrece un horario dentro del horario de la oficina.",
+    "closed_day": "La oficina abre de lunes a viernes; ofrece el día hábil más cercano.",
     "invalid_range": "La hora de fin debe ser posterior a la de inicio.",
     "slot_conflict": "Usa list_available_rooms o get_room_schedule para ofrecer otra sala u horario.",
     "booking_not_found": "Usa list_my_bookings para ver las reservas activas del usuario.",
