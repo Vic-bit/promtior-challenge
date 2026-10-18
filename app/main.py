@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
-from app.agent import booking_agent
+from app.booking_agent import booking_agent
 from app.auth import create_token, get_current_user, verify_password
 from app.db import get_conn, init_db
 

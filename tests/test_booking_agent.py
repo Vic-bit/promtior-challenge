@@ -1,12 +1,12 @@
 import json
 from datetime import datetime, time, timedelta
+from string import Formatter
 from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app import agent
-from app.agent import system_prompt
-from app.tools import (
+from app.booking_agent import PROMPTS, booking_agent, system_prompt
+from app.booking_agent_tools import (
     SUGGESTIONS,
     cancel_booking,
     create_booking,
@@ -124,11 +124,21 @@ class FakeModel:
 def test_graph_runs_the_requested_tool_with_the_user_from_config(db, monkeypatch):
     book(username="User1", room="A")
     tool_call = AIMessage("", tool_calls=[{"name": "list_my_bookings", "args": {}, "id": "call_1"}])
-    monkeypatch.setattr(agent, "model", FakeModel([tool_call, AIMessage("Tienes una reserva en la sala A.")]))
+    monkeypatch.setattr("app.booking_agent.model", FakeModel([tool_call, AIMessage("Tienes una reserva en la sala A.")]))
 
     config = {"configurable": {"thread_id": "test", **config_for("User1")["configurable"]}}
-    result = agent.booking_agent.invoke({"messages": [HumanMessage("¿Qué reservas tengo?")]}, config)
+    result = booking_agent.invoke({"messages": [HumanMessage("¿Qué reservas tengo?")]}, config)
 
     tool_result = json.loads(result["messages"][2].content)
     assert [b["room"] for b in tool_result["bookings"]] == ["A"]
     assert result["messages"][-1].content == "Tienes una reserva en la sala A."
+
+
+def test_prompt_variables_match_its_placeholders():
+    spec = PROMPTS["booking_agent_prompt"]
+    placeholders = {name for _, name, _, _ in Formatter().parse(spec["prompt"]) if name}
+    assert placeholders == set(spec["variables"])
+
+
+def test_graph_is_named_booking_agent():
+    assert booking_agent.name == "booking_agent"

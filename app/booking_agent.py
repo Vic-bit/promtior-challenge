@@ -12,7 +12,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.config import settings
-from app.tools import TOOLS
+from app.booking_agent_tools import TOOLS
 
 PROMPTS = yaml.safe_load((Path(__file__).parent / "prompts.yaml").read_text(encoding="utf-8"))
 TZ = ZoneInfo(settings.timezone)
@@ -42,7 +42,7 @@ def calendar(today: date) -> str:
 
 def system_prompt(now: datetime) -> str:
     """Fill the system prompt with the current date and calendar, so the LLM can resolve "mañana" or "el jueves"."""
-    return PROMPTS["system"].format(
+    return PROMPTS["booking_agent_prompt"]["prompt"].format(
         now=f"{WEEKDAYS[now.weekday()]} {now:%Y-%m-%d %H:%M}",
         timezone=settings.timezone,
         calendar=calendar(now.date()),
@@ -64,4 +64,4 @@ graph.add_edge(START, "agent")
 graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: END})
 graph.add_edge("tools", "agent")
 
-booking_agent = graph.compile(checkpointer=MemorySaver())
+booking_agent = graph.compile(checkpointer=MemorySaver(), name="booking_agent")
