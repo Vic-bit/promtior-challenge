@@ -106,6 +106,9 @@ def test_system_prompt_includes_current_date_and_weekday():
     prompt = system_prompt(datetime(2026, 10, 15, 9, 0, tzinfo=TZ))
     assert "jueves 2026-10-15 09:00" in prompt
     assert "America/Montevideo" in prompt
+    assert "- jueves 15/10 (hoy): 2026-10-15" in prompt
+    assert "- viernes 16/10 (mañana): 2026-10-16" in prompt
+    assert "- domingo 18/10: 2026-10-18" in prompt
 
 
 class FakeModel:

@@ -1,6 +1,6 @@
 """booking_agent: system prompt, model and LangGraph graph."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ from app.tools import TOOLS
 PROMPTS = yaml.safe_load((Path(__file__).parent / "prompts.yaml").read_text(encoding="utf-8"))
 TZ = ZoneInfo(settings.timezone)
 WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+CALENDAR_DAYS = 14
 
 model = ChatGroq(
     model=settings.agent_model,
@@ -26,11 +27,25 @@ model = ChatGroq(
 ).bind_tools(TOOLS)
 
 
+def calendar(today: date) -> str:
+    """List the next days with weekday and ISO date, e.g. "- domingo 18/10 (mañana): 2026-10-18".
+
+    LLMs are unreliable at calendar arithmetic, so the dates are computed here and only copied.
+    """
+    labels = {0: " (hoy)", 1: " (mañana)"}
+    lines = []
+    for offset in range(CALENDAR_DAYS):
+        day = today + timedelta(days=offset)
+        lines.append(f"- {WEEKDAYS[day.weekday()]} {day:%d/%m}{labels.get(offset, '')}: {day:%Y-%m-%d}")
+    return "\n".join(lines)
+
+
 def system_prompt(now: datetime) -> str:
-    """Fill the system prompt with the current date, so the LLM can resolve "mañana" or "el jueves"."""
+    """Fill the system prompt with the current date and calendar, so the LLM can resolve "mañana" or "el jueves"."""
     return PROMPTS["system"].format(
         now=f"{WEEKDAYS[now.weekday()]} {now:%Y-%m-%d %H:%M}",
         timezone=settings.timezone,
+        calendar=calendar(now.date()),
     )
 
 

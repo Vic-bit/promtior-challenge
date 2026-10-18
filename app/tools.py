@@ -84,7 +84,8 @@ def create_booking(room: Room, start: str, end: str, title: str, attendees: int,
 
     start y end son fechas ISO 8601 en hora de la oficina, por ejemplo 2026-10-17T10:00.
     Deben caer en :00 o :30 y la duración va de 30 minutos a 3 horas.
-    Si falta el título o la cantidad de asistentes, pídeselos al usuario: nunca los inventes.
+    Todos los argumentos deben venir de lo que dijo el usuario: sala, horario, título y
+    asistentes. Si falta alguno, pregúntalo; nunca uses valores de relleno.
     Llámala solo después de que el usuario confirme el resumen de la reserva.
     """
     try:
