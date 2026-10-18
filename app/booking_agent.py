@@ -13,6 +13,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.config import settings
 from app.booking_agent_tools import TOOLS
+from app.rules import OFFICE_CLOSE, OFFICE_OPEN
 
 PROMPTS = yaml.safe_load((Path(__file__).parent / "prompts.yaml").read_text(encoding="utf-8"))
 TZ = ZoneInfo(settings.timezone)
@@ -42,11 +43,12 @@ def calendar(today: date) -> str:
 
 
 def system_prompt(now: datetime) -> str:
-    """Fill the system prompt with the current date and calendar, so the LLM can resolve "mañana" or "el jueves"."""
+    """Fill the system prompt with the date, calendar and office hours, so the LLM can resolve "mañana" or "el jueves"."""
     return PROMPTS["booking_agent_prompt"]["prompt"].format(
         now=f"{WEEKDAYS[now.weekday()]} {now:%Y-%m-%d %H:%M}",
         timezone=settings.timezone,
         calendar=calendar(now.date()),
+        office_hours=f"lunes a viernes de {OFFICE_OPEN:%H:%M} a {OFFICE_CLOSE:%H:%M}",
     )
 
 
