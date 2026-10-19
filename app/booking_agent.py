@@ -5,6 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
+from groq import BadRequestError
 from langchain_core.messages import SystemMessage
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
@@ -56,7 +57,16 @@ def call_model(state: MessagesState) -> dict:
     """Agent node: ask the LLM for the next step, either a reply or a tool call."""
     # Rebuilt on every turn and never stored in memory, so the current time is always fresh.
     messages = [SystemMessage(system_prompt(datetime.now(TZ))), *state["messages"]]
-    return {"messages": [model.invoke(messages)]}
+    try:
+        return {"messages": [model.invoke(messages)]}
+    except BadRequestError as exc:
+        if "tool_use_failed" not in str(exc):
+            raise
+        feedback = SystemMessage(
+            f"Tu llamada a una herramienta fue inválida: {exc.body['error']['message']}. "
+            "No uses valores nulos ni inventados: si faltan datos, pídelos al usuario."
+        )
+        return {"messages": [model.invoke([*messages, feedback])]}
 
 
 graph = StateGraph(MessagesState)
