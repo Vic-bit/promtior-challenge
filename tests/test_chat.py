@@ -1,0 +1,90 @@
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
+
+from app.booking_agent import booking_agent
+from app.main import app
+
+PASSWORD = "TechnicalChallengePromtior"
+
+
+class FakeModel:
+    """Stands in for Groq: returns the given replies in order, so /chat runs without an LLM."""
+
+    def __init__(self, replies):
+        self.replies = iter(replies)
+
+    def invoke(self, messages):
+        return next(self.replies)
+
+
+class FailingModel:
+    def invoke(self, messages):
+        raise RuntimeError("Groq is down")
+
+
+@pytest.fixture
+def client(db):
+    with TestClient(app) as client:
+        yield client
+
+
+def auth_header(client, username: str) -> dict:
+    token = client.post("/auth/login", json={"username": username, "password": PASSWORD}).json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def send(client, username: str, message: str = "Hola", session_id: str = "s1"):
+    return client.post("/chat", json={"message": message, "session_id": session_id}, headers=auth_header(client, username))
+
+
+def test_chat_requires_a_token(client):
+    response = client.post("/chat", json={"message": "Hola", "session_id": "s1"})
+    assert response.status_code == 401
+
+
+def test_chat_returns_the_agent_reply(client, monkeypatch):
+    monkeypatch.setattr("app.booking_agent.model", FakeModel([AIMessage("¡Hola! ¿En qué te ayudo?")]))
+    response = send(client, "User1")
+    assert response.status_code == 200
+    assert response.json() == {"reply": "¡Hola! ¿En qué te ayudo?"}
+
+
+def test_tools_run_as_the_user_from_the_token(client, monkeypatch):
+    # User2 books a room; User1 asks for their bookings and must not see it.
+    create = AIMessage("", tool_calls=[{
+        "name": "create_booking", "id": "c1",
+        "args": {"room": "A", "start": "2099-01-01T10:00", "end": "2099-01-01T11:00", "title": "Sync", "attendees": 2},
+    }])
+    monkeypatch.setattr("app.booking_agent.model", FakeModel([create, AIMessage("Reservada.")]))
+    send(client, "User2", session_id="u2")
+
+    listing = AIMessage("", tool_calls=[{"name": "list_my_bookings", "id": "c2", "args": {}}])
+    monkeypatch.setattr("app.booking_agent.model", FakeModel([listing, AIMessage("No tienes reservas.")]))
+    send(client, "User1", session_id="u1")
+
+    state = booking_agent.get_state({"configurable": {"thread_id": "1:u1"}})
+    assert json.loads(state.values["messages"][-2].content)["bookings"] == []
+
+
+def test_agent_failure_returns_503(client, monkeypatch):
+    monkeypatch.setattr("app.booking_agent.model", FailingModel())
+    response = send(client, "User1")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The assistant is not available right now. Please try again."
+
+
+def test_empty_message_is_rejected(client):
+    response = send(client, "User1", message="")
+    assert response.status_code == 422
+
+
+def test_tool_calls_are_logged(client, monkeypatch, caplog):
+    listing = AIMessage("", tool_calls=[{"name": "list_my_bookings", "id": "c1", "args": {}}])
+    monkeypatch.setattr("app.booking_agent.model", FakeModel([listing, AIMessage("No tienes reservas.")]))
+    with caplog.at_level("INFO", logger="app.main"):
+        send(client, "User1", session_id="logs")
+    assert "tool call list_my_bookings {}" in caplog.text
+    assert 'tool result {"ok": true, "bookings": []}' in caplog.text

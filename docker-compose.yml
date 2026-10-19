@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: booking
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # Lets the app wait until Postgres actually accepts connections, not just until the container starts.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d booking"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside Docker the database is reached by its service name, not localhost.
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/booking
+    ports:
+      - "80:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
