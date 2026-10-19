@@ -2,8 +2,11 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
@@ -23,7 +26,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="Meeting Room Booking", lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class LoginRequest(BaseModel):
@@ -46,6 +53,12 @@ def log_tool_calls(messages: list) -> None:
                 logger.info("tool call %s %s", call["name"], call["args"])
         elif message.type == "tool":
             logger.info("tool result %s", message.content[:300])
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Serve the single-page frontend: login and chat in one HTML file."""
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")

@@ -54,6 +54,19 @@ def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_index_serves_the_frontend(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Reservas de salas" in response.text
+
+
+def test_static_files_are_served(client):
+    response = client.get("/static/cubo-logo.svg")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+
+
 def test_login_returns_a_token_for_the_logged_in_user(client):
     response = client.post("/auth/login", json={"username": "User1", "password": PASSWORD})
     assert response.status_code == 200
