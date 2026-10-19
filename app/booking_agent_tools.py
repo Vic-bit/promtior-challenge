@@ -99,6 +99,22 @@ def get_room_schedule(room: Room, start: str, end: str) -> dict:
 
 
 @tool
+def check_booking(room: Room, start: str, end: str, attendees: int | None = None) -> dict:
+    """Verifica si una reserva es posible antes de pedir el título. No reserva nada.
+
+    Aplica las reglas (duración, horario de la oficina, horas en :00 o :30, capacidad) y
+    confirma que la sala esté libre. Úsala apenas tengas sala, inicio y fin, antes de pedir el
+    título y los asistentes. Si el usuario ya dijo cuántas personas asisten, pásalo en attendees.
+    start y end son fechas ISO 8601 en hora de la oficina, por ejemplo 2026-10-17T10:00.
+    """
+    try:
+        booking.check_booking(room, parse(start), parse(end), attendees)
+        return {"ok": True, "room": room, "available": True}
+    except BookingError as exc:
+        return error(exc)
+
+
+@tool
 def create_booking(room: Room, start: str, end: str, title: str, attendees: int, config: RunnableConfig) -> dict:
     """Crea una reserva a nombre del usuario actual.
 
@@ -136,4 +152,4 @@ def cancel_booking(booking_id: int, config: RunnableConfig) -> dict:
         return error(exc)
 
 
-TOOLS = [list_available_rooms, get_room_schedule, create_booking, list_my_bookings, cancel_booking]
+TOOLS = [list_available_rooms, get_room_schedule, check_booking, create_booking, list_my_bookings, cancel_booking]
