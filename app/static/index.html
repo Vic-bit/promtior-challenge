@@ -172,6 +172,7 @@
       loginFailed: "Usuario o contraseña inválidos.",
       sessionExpired: "Tu sesión venció. Volvé a ingresar.",
       assistantFailed: "El asistente tuvo un problema y no pudo responder. Probá de nuevo en unos segundos.",
+      rateLimited: "El asistente alcanzó su límite de uso por ahora. Probá de nuevo en unos minutos.",
       genericError: "Algo salió mal. Probá de nuevo.",
       noConnection: "No se pudo conectar con el servidor.",
       officeClosed: "La oficina está cerrada este día (abre de lunes a viernes).",
@@ -266,6 +267,9 @@
     }
 
     function errorText(status) {
+      if (status === 429) {
+        return MESSAGES.rateLimited;
+      }
       if (status === 503 || status === 504) {
         return MESSAGES.assistantFailed;
       }
