@@ -6,6 +6,7 @@ import pytest
 
 from app.booking import (
     cancel_booking,
+    check_booking,
     create_booking,
     get_room_schedule,
     list_available_rooms,
@@ -189,3 +190,28 @@ def test_room_schedule_marks_free_and_taken_slots(db):
 def test_room_schedule_rejects_unknown_room(db):
     with pytest.raises(InvalidBooking):
         get_room_schedule("F", at(10), at(11))
+
+
+def test_check_booking_passes_for_a_valid_free_slot(db):
+    check_booking("A", at(10), at(11), attendees=3)
+    assert count("bookings") == 0
+
+
+def test_check_booking_catches_rule_violations_before_asking_for_the_title(db):
+    with pytest.raises(InvalidBooking) as error:
+        check_booking("C", at(8), at(12))
+    assert error.value.code == "invalid_duration"
+    with pytest.raises(InvalidBooking) as error:
+        check_booking("A", at(10), at(11), attendees=8)
+    assert error.value.code == "capacity_exceeded"
+
+
+def test_check_booking_catches_a_taken_room(db):
+    book(room="A", start=at(10), end=at(11))
+    with pytest.raises(SlotConflict):
+        check_booking("A", at(10, 30), at(11, 30))
+    check_booking("A", at(11), at(12))  # right after the booking ends: free
+
+
+def test_check_booking_without_attendees_skips_the_capacity_rule(db):
+    check_booking("A", at(10), at(11))

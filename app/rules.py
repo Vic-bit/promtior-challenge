@@ -68,17 +68,22 @@ def validate_office_hours(start: datetime, end: datetime) -> None:
         )
 
 
+def validate_booking_time(start: datetime, end: datetime, now: datetime) -> None:
+    """Run the time rules of a booking: alignment, duration, office hours and not in the past."""
+    validate_alignment(start)
+    validate_alignment(end)
+    validate_duration(start, end)
+    validate_office_hours(start, end)
+    validate_not_in_past(start, now)
+
+
 def validate_booking(room: str, start: datetime, end: datetime, title: str, attendees: int, now: datetime) -> None:
     """Run every booking rule; raise InvalidBooking on the first one that fails."""
     # Room goes first because the attendee check needs its capacity.
     validate_room(room)
     validate_title(title)
     validate_attendees(room, attendees)
-    validate_alignment(start)
-    validate_alignment(end)
-    validate_duration(start, end)
-    validate_office_hours(start, end)
-    validate_not_in_past(start, now)
+    validate_booking_time(start, end, now)
 
 
 def validate_range(start: datetime, end: datetime) -> None:

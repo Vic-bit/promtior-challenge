@@ -71,7 +71,9 @@
     #login-logo { width: 220px; align-self: center; margin-bottom: 8px; }
 
     /* Chat view */
-    #chat-view { display: flex; flex-direction: column; height: 100%; max-width: 760px; margin: 0 auto; }
+    #chat-view { display: flex; flex-direction: column; height: 100%; max-width: 1200px; margin: 0 auto; }
+    #main { display: flex; flex: 1; min-height: 0; }
+    #chat { display: flex; flex-direction: column; flex: 1; min-width: 0; }
     header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: var(--surface); border-bottom: 3px solid var(--action); }
     header img { height: 24px; }
     header h1 { margin: 0; font-size: 0.9rem; flex: 1; }
@@ -85,6 +87,34 @@
     #typing { color: var(--accent); padding: 0 16px 8px; }
 
     #chat-form { display: flex; gap: 8px; padding: 12px 16px; background: var(--surface); }
+
+    /* Read-only grid: every room for one day, straight from the database. */
+    #schedule { width: 440px; padding: 16px; background: var(--surface); border-left: 3px solid var(--bg); overflow-y: auto; }
+    #schedule-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    #schedule-day { font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.9rem; }
+    #schedule-nav button { padding: 4px 12px; }
+    /* Vertical: time grows downward (y axis), rooms go A to E to the right (x axis). */
+    #schedule-grid { display: grid; grid-template-columns: 44px repeat(5, 1fr); gap: 2px; font-size: 0.7rem; }
+    .hour { color: var(--muted); align-self: center; }
+    .room-label { font-weight: 800; text-align: center; padding-bottom: 4px; }
+    .room-label small { display: block; font-weight: 400; color: var(--muted); }
+    .slot { height: 22px; display: flex; align-items: center; justify-content: center; }
+    .slot.free { background: var(--field); color: var(--muted); }
+    .slot.mine { background: var(--action); color: var(--text); font-weight: 700; }
+    .slot.taken { background: var(--accent); color: white; font-weight: 700; }
+    #schedule-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 0.8rem; color: var(--muted); }
+    #schedule-legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; }
+    #legend-free::before { background: var(--field); }
+    #legend-mine::before { background: var(--action); }
+    #legend-taken::before { background: var(--accent); }
+    /* A message inside the grid must span every column, or it gets squeezed into the 44px time column. */
+    .full-row { grid-column: 1 / -1; color: var(--muted); padding: 8px 0; }
+
+    @media (max-width: 900px) {
+      #main { flex-direction: column; }
+      #chat { min-height: 60vh; }
+      #schedule { width: auto; border-left: none; border-top: 3px solid var(--bg); }
+    }
   </style>
 </head>
 <body>
@@ -108,22 +138,51 @@
       <button class="secondary chamfer" onclick="newConversation()">Nueva conversación</button>
       <button class="secondary chamfer" onclick="logout()">Salir</button>
     </header>
-    <div id="messages"></div>
-    <div id="typing" class="hidden">El asistente está escribiendo…</div>
-    <form id="chat-form">
-      <input id="message" class="chamfer" placeholder="Escribí tu mensaje..." autocomplete="off" required>
-      <button id="send" class="chamfer" type="submit">Enviar</button>
-    </form>
+    <div id="main">
+      <div id="chat">
+        <div id="messages"></div>
+        <div id="typing" class="hidden">El asistente está escribiendo…</div>
+        <form id="chat-form">
+          <input id="message" class="chamfer" placeholder="Escribí tu mensaje..." autocomplete="off" required>
+          <button id="send" class="chamfer" type="submit">Enviar</button>
+        </form>
+      </div>
+      <aside id="schedule">
+        <div id="schedule-nav">
+          <button class="secondary chamfer" onclick="changeDay(-1)">◀</button>
+          <span id="schedule-day"></span>
+          <button class="secondary chamfer" onclick="changeDay(1)">▶</button>
+        </div>
+        <div id="schedule-grid"></div>
+        <div id="schedule-legend"><span id="legend-free">Libre</span><span id="legend-mine">Tuyas</span><span id="legend-taken">De otros</span></div>
+      </aside>
+    </div>
   </section>
 
   <script>
     // sessionStorage keeps the login while the tab is open, and clears it when the tab closes.
     const session = sessionStorage;
 
-    function showLogin(errorText = "") {
+    // Every text the user sees from the script, in one place. The server only sends status codes
+    // and English technical errors (for the log); how we talk to the user is decided here.
+    const MESSAGES = {
+      greeting: (username) =>
+        `Hola ${username}, puedo ayudarte a ver qué salas están libres, ` +
+        "ver la agenda de una sala, reservar y cancelar tus reservas. ¿Qué necesitás?",
+      loginFailed: "Usuario o contraseña inválidos.",
+      sessionExpired: "Tu sesión venció. Volvé a ingresar.",
+      assistantFailed: "El asistente tuvo un problema y no pudo responder. Probá de nuevo en unos segundos.",
+      genericError: "Algo salió mal. Probá de nuevo.",
+      noConnection: "No se pudo conectar con el servidor.",
+      officeClosed: "La oficina está cerrada este día (abre de lunes a viernes).",
+      slotStates: { free: "libre", mine: "tu reserva", taken: "reservada por otro usuario" },
+      scheduleFailed: "No se pudo cargar la grilla.",
+    };
+
+    function showLogin(message = "") {
       document.getElementById("chat-view").classList.add("hidden");
       document.getElementById("login-view").classList.remove("hidden");
-      document.getElementById("login-error").textContent = errorText;
+      document.getElementById("login-error").textContent = message;
     }
 
     function showChat() {
@@ -131,6 +190,7 @@
       document.getElementById("chat-view").classList.remove("hidden");
       document.getElementById("current-user").textContent = "● " + session.getItem("username");
       document.getElementById("message").focus();
+      loadSchedule();
     }
 
     function addMessage(text, kind) {
@@ -144,11 +204,7 @@
     }
 
     function greet() {
-      addMessage(
-        "Hola " + session.getItem("username") + ", puedo ayudarte a ver qué salas están libres, " +
-        "ver la agenda de una sala, reservar y cancelar tus reservas. ¿Qué necesitás?",
-        "assistant"
-      );
+      addMessage(MESSAGES.greeting(session.getItem("username")), "assistant");
     }
 
     async function login(event) {
@@ -161,13 +217,13 @@
         body: JSON.stringify({ username, password }),
       });
       if (!response.ok) {
-        showLogin("Usuario o contraseña inválidos.");
+        showLogin(MESSAGES.loginFailed);
         return;
       }
       const data = await response.json();
       session.setItem("token", data.access_token);
       session.setItem("username", username);
-      session.setItem("sessionId", crypto.randomUUID());
+      session.setItem("sessionId", newSessionId());
       showChat();
       greet();
     }
@@ -191,20 +247,33 @@
           body: JSON.stringify({ message: text, session_id: session.getItem("sessionId") }),
         });
         if (response.status === 401) {
-          logout("Tu sesión venció. Volvé a ingresar.");
+          logout(MESSAGES.sessionExpired);
+          return;
+        }
+        // Check the status before reading JSON: a CloudFront timeout (504) answers with HTML.
+        if (!response.ok) {
+          addMessage(errorText(response.status), "error");
           return;
         }
         const data = await response.json();
-        if (response.ok) {
-          addMessage(data.reply, "assistant");
-        } else {
-          addMessage(data.detail || "Algo salió mal. Probá de nuevo.", "error");
-        }
+        addMessage(data.reply, "assistant");
+        loadSchedule();  // the agent may have just booked or cancelled something
       } catch {
-        addMessage("No se pudo conectar con el servidor.", "error");
+        addMessage(MESSAGES.noConnection, "error");
       } finally {
         setWaiting(false);
       }
+    }
+
+    function errorText(status) {
+      if (status === 503 || status === 504) {
+        return MESSAGES.assistantFailed;
+      }
+      return MESSAGES.genericError;
+    }
+
+    function newSessionId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2);
     }
 
     function setWaiting(waiting) {
@@ -215,7 +284,7 @@
 
     function newConversation() {
       // A new session_id means a new thread on the server: the agent starts with no memory.
-      session.setItem("sessionId", crypto.randomUUID());
+      session.setItem("sessionId", newSessionId());
       document.getElementById("messages").innerHTML = "";
       greet();
     }
@@ -224,6 +293,76 @@
       session.clear();
       document.getElementById("messages").innerHTML = "";
       showLogin(message);
+    }
+
+    // ---- Schedule grid ----
+    const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+    let scheduleDay = new Date();  // the day the grid shows; starts today
+
+    function isoDate(day) {
+      // YYYY-MM-DD from the browser's local date (toISOString would convert to UTC and may shift the day).
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+    }
+
+    function changeDay(delta) {
+      scheduleDay.setDate(scheduleDay.getDate() + delta);
+      loadSchedule();
+    }
+
+    async function loadSchedule() {
+      const day = scheduleDay;
+      document.getElementById("schedule-day").textContent =
+        `${WEEKDAYS[day.getDay()]} ${String(day.getDate()).padStart(2, "0")}/${String(day.getMonth() + 1).padStart(2, "0")}`;
+      const grid = document.getElementById("schedule-grid");
+      try {
+        const response = await fetch("/schedule?day=" + isoDate(day), {
+          headers: { "Authorization": "Bearer " + session.getItem("token") },
+        });
+        if (response.status === 401) {
+          logout(MESSAGES.sessionExpired);
+          return;
+        }
+        renderSchedule(await response.json());
+      } catch {
+        grid.replaceChildren(cell("full-row", MESSAGES.scheduleFailed));
+      }
+    }
+
+    function renderSchedule(data) {
+      const grid = document.getElementById("schedule-grid");
+      grid.innerHTML = "";  // only clears; every cell below is built with createElement
+      if (!data.open) {
+        grid.appendChild(cell("full-row", MESSAGES.officeClosed));
+        return;
+      }
+      // Header row: an empty corner, then one column per room with its capacity.
+      grid.appendChild(cell("", ""));
+      for (const room of data.rooms) {
+        const label = cell("room-label", room.room);
+        const capacity = document.createElement("small");
+        capacity.textContent = room.capacity + " pers.";
+        label.appendChild(capacity);
+        grid.appendChild(label);
+      }
+      // One row per 30-minute slot: the hour on the axis (only at :00), then each room's cell.
+      // Every room has the same slots, so the times come from the first one.
+      data.rooms[0].slots.forEach((slot, i) => {
+        grid.appendChild(cell("hour", slot.time.endsWith(":00") ? slot.time : ""));
+        for (const room of data.rooms) {
+          const state = room.slots[i].state;  // "free", "mine" or "taken", decided by the server
+          const square = cell("slot " + state, slot.time);
+          square.title = `Sala ${room.room} ${slot.time} · ${MESSAGES.slotStates[state]}`;
+          grid.appendChild(square);
+        }
+      });
+    }
+
+    function cell(className, text) {
+      const div = document.createElement("div");
+      div.className = className;
+      div.textContent = text;
+      return div;
     }
 
     document.getElementById("login-form").addEventListener("submit", login);

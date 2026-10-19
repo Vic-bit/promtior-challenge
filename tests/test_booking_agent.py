@@ -3,12 +3,15 @@ from datetime import date, datetime, time, timedelta
 from string import Formatter
 from zoneinfo import ZoneInfo
 
+import httpx
+from groq import BadRequestError
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.booking_agent import PROMPTS, booking_agent, system_prompt
 from app.booking_agent_tools import (
     SUGGESTIONS,
     cancel_booking,
+    check_booking,
     create_booking,
     get_room_schedule,
     group_slots,
@@ -179,3 +182,49 @@ def test_weekend_booking_returns_structured_error(db):
     result = book(start=f"{saturday}T10:00", end=f"{saturday}T11:00")
     assert result["error"] == "closed_day"
     assert result["suggestions"] == [SUGGESTIONS["closed_day"]]
+
+
+def groq_tool_use_failed() -> BadRequestError:
+    """The exact error Groq returns when the model calls create_booking with title=null."""
+    body = {"error": {
+        "message": "parameters for tool create_booking did not match schema: `/title`: expected string, but got null",
+        "code": "tool_use_failed",
+    }}
+    response = httpx.Response(400, request=httpx.Request("POST", "https://api.groq.com"))
+    return BadRequestError(f"Error code: 400 - {body}", response=response, body=body)
+
+
+class FailsOnceModel:
+    """First call fails like Groq's tool_use_failed; the second one answers. Records what it receives."""
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = []
+
+    def invoke(self, messages):
+        self.calls.append(messages)
+        if len(self.calls) == 1:
+            raise groq_tool_use_failed()
+        return self.reply
+
+
+def test_agent_recovers_from_an_invalid_tool_call(monkeypatch):
+    model = FailsOnceModel(AIMessage("¿Qué título le pongo y cuántas personas asisten?"))
+    monkeypatch.setattr("app.booking_agent.model", model)
+
+    config = {"configurable": {"thread_id": "recovery", "user_id": 1}}
+    result = booking_agent.invoke({"messages": [HumanMessage("Sí")]}, config)
+
+    assert result["messages"][-1].content == "¿Qué título le pongo y cuántas personas asisten?"
+    feedback = model.calls[1][-1].content
+    assert "Tu llamada a una herramienta fue inválida" in feedback
+    assert "/title" in feedback
+
+
+def test_check_booking_tool(db):
+    assert check_booking.invoke({"room": "A", "start": at(10), "end": at(11)}) == {
+        "ok": True, "room": "A", "available": True,
+    }
+    result = check_booking.invoke({"room": "C", "start": at(8), "end": at(12)})
+    assert result["error"] == "invalid_duration"
+    assert result["suggestions"] == [SUGGESTIONS["invalid_duration"]]
