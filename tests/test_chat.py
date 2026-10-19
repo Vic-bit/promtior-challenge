@@ -117,14 +117,29 @@ def test_schedule_shows_every_room_and_the_taken_slots(client):
 
     assert data["open"] is True
     assert [r["room"] for r in data["rooms"]] == ["A", "B", "C", "D", "E"]
-    room_b = {s["time"]: s["available"] for s in data["rooms"][1]["slots"]}
+    room_b = {s["time"]: s["state"] for s in data["rooms"][1]["slots"]}
     assert len(room_b) == 20  # 08:00 to 17:30
-    assert room_b["09:30"] is True
-    assert room_b["10:00"] is False and room_b["10:30"] is False
-    assert room_b["11:00"] is True
+    assert room_b["09:30"] == "free"
+    assert room_b["10:00"] == "mine" and room_b["10:30"] == "mine"
+    assert room_b["11:00"] == "free"
 
 
 def test_schedule_on_a_weekend_is_closed(client):
     saturday = date(2026, 10, 24)
     data = client.get("/schedule", params={"day": str(saturday)}, headers=auth_header(client, "User1")).json()
     assert data == {"day": "2026-10-24", "open": False, "rooms": []}
+
+
+def test_schedule_tells_my_bookings_from_other_users(client):
+    day = next_weekday()
+    with get_conn() as conn:
+        ids = {r["username"]: r["id"] for r in conn.execute("SELECT id, username FROM users").fetchall()}
+    create_booking(ids["User1"], "A", datetime.combine(day, time(10)), datetime.combine(day, time(11)), "Mine", 2)
+    create_booking(ids["User2"], "B", datetime.combine(day, time(10)), datetime.combine(day, time(11)), "Theirs", 2)
+
+    def state_at_10(username: str) -> dict:
+        data = client.get("/schedule", params={"day": str(day)}, headers=auth_header(client, username)).json()
+        return {r["room"]: r["slots"][4]["state"] for r in data["rooms"]}  # slot 4 = 10:00
+
+    assert state_at_10("User1") == {"A": "mine", "B": "taken", "C": "free", "D": "free", "E": "free"}
+    assert state_at_10("User2") == {"A": "taken", "B": "mine", "C": "free", "D": "free", "E": "free"}

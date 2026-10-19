@@ -100,12 +100,15 @@
     .room-label small { display: block; font-weight: 400; color: var(--muted); }
     .slot { height: 22px; display: flex; align-items: center; justify-content: center; }
     .slot.free { background: var(--field); color: var(--muted); }
-    .slot.taken { background: var(--action); color: var(--text); font-weight: 700; }
+    .slot.mine { background: var(--action); color: var(--text); font-weight: 700; }
+    .slot.taken { background: var(--accent); color: white; font-weight: 700; }
     #schedule-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 0.8rem; color: var(--muted); }
     #schedule-legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; }
     #legend-free::before { background: var(--field); }
-    #legend-taken::before { background: var(--action); }
-    #schedule-closed { color: var(--muted); }
+    #legend-mine::before { background: var(--action); }
+    #legend-taken::before { background: var(--accent); }
+    /* A message inside the grid must span every column, or it gets squeezed into the 44px time column. */
+    .full-row { grid-column: 1 / -1; color: var(--muted); padding: 8px 0; }
 
     @media (max-width: 900px) {
       #main { flex-direction: column; }
@@ -151,7 +154,7 @@
           <button class="secondary chamfer" onclick="changeDay(1)">▶</button>
         </div>
         <div id="schedule-grid"></div>
-        <div id="schedule-legend"><span id="legend-free">Libre</span><span id="legend-taken">Ocupado</span></div>
+        <div id="schedule-legend"><span id="legend-free">Libre</span><span id="legend-mine">Tuyas</span><span id="legend-taken">De otros</span></div>
       </aside>
     </div>
   </section>
@@ -172,6 +175,7 @@
       genericError: "Algo salió mal. Probá de nuevo.",
       noConnection: "No se pudo conectar con el servidor.",
       officeClosed: "La oficina está cerrada este día (abre de lunes a viernes).",
+      slotStates: { free: "libre", mine: "tu reserva", taken: "reservada por otro usuario" },
       scheduleFailed: "No se pudo cargar la grilla.",
     };
 
@@ -321,7 +325,7 @@
         }
         renderSchedule(await response.json());
       } catch {
-        grid.textContent = MESSAGES.scheduleFailed;
+        grid.replaceChildren(cell("full-row", MESSAGES.scheduleFailed));
       }
     }
 
@@ -329,7 +333,7 @@
       const grid = document.getElementById("schedule-grid");
       grid.innerHTML = "";  // only clears; every cell below is built with createElement
       if (!data.open) {
-        grid.textContent = MESSAGES.officeClosed;
+        grid.appendChild(cell("full-row", MESSAGES.officeClosed));
         return;
       }
       // Header row: an empty corner, then one column per room with its capacity.
@@ -346,9 +350,9 @@
       data.rooms[0].slots.forEach((slot, i) => {
         grid.appendChild(cell("hour", slot.time.endsWith(":00") ? slot.time : ""));
         for (const room of data.rooms) {
-          const available = room.slots[i].available;
-          const square = cell("slot " + (available ? "free" : "taken"), slot.time);
-          square.title = `Sala ${room.room} ${slot.time} · ${available ? "libre" : "ocupado"}`;
+          const state = room.slots[i].state;  // "free", "mine" or "taken", decided by the server
+          const square = cell("slot " + state, slot.time);
+          square.title = `Sala ${room.room} ${slot.time} · ${MESSAGES.slotStates[state]}`;
           grid.appendChild(square);
         }
       });
