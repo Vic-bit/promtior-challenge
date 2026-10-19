@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from groq import RateLimitError
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
@@ -129,8 +130,14 @@ def chat(body: ChatRequest, user: dict = Depends(get_current_user)) -> dict:
     config = {"configurable": {"thread_id": f"{user['id']}:{body.session_id}", "user_id": user["id"]}}
     try:
         result = booking_agent.invoke({"messages": [HumanMessage(body.message)]}, config)
+    except RateLimitError as exc:
+        logger.warning("LLM provider rate limit reached: %s", exc)
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "The LLM provider rate limit was reached. Please try again later.",
+        )
     except Exception:
-        # Any LLM provider failure (quota, network, bad key) becomes a clear 503; details go to the log.
+        # Any other failure (network, bad key, provider down) becomes a clear 503; details go to the log.
         logger.exception("Agent failed")
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
