@@ -12,7 +12,9 @@ from app.rules import (
     ROOM_CAPACITY,
     SLOT_DURATION,
     generate_slots,
+    validate_attendees,
     validate_booking,
+    validate_booking_time,
     validate_range,
     validate_room,
 )
@@ -28,6 +30,28 @@ def to_local(moment: datetime) -> datetime:
     if moment.tzinfo is None:
         return moment.replace(tzinfo=TZ)
     return moment.astimezone(TZ)
+
+
+def check_booking(room: str, start: datetime, end: datetime, attendees: int | None = None) -> None:
+    """Check a booking before asking for its title: the same rules plus a free room, without saving anything.
+
+    create_booking checks everything again, since someone else may take the room in between.
+    """
+    start, end = to_local(start), to_local(end)
+    validate_room(room)
+    if attendees is not None:
+        validate_attendees(room, attendees)
+    validate_booking_time(start, end, now=datetime.now(TZ))
+    with get_conn() as conn:
+        taken = conn.execute(
+            "SELECT 1 FROM booking_slots WHERE room = %s AND slot_start >= %s AND slot_start < %s LIMIT 1",
+            (room, start, end),
+        ).fetchone()
+    if taken:
+        raise SlotConflict(
+            "slot_conflict",
+            f"Room {room} is already booked for part of {start:%Y-%m-%d %H:%M}-{end:%H:%M}.",
+        )
 
 
 def create_booking(user_id: int, room: str, start: datetime, end: datetime, title: str, attendees: int) -> dict:

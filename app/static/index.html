@@ -120,10 +120,23 @@
     // sessionStorage keeps the login while the tab is open, and clears it when the tab closes.
     const session = sessionStorage;
 
-    function showLogin(errorText = "") {
+    // Every text the user sees from the script, in one place. The server only sends status codes
+    // and English technical errors (for the log); how we talk to the user is decided here.
+    const MESSAGES = {
+      greeting: (username) =>
+        `Hola ${username}, puedo ayudarte a ver qué salas están libres, ` +
+        "ver la agenda de una sala, reservar y cancelar tus reservas. ¿Qué necesitás?",
+      loginFailed: "Usuario o contraseña inválidos.",
+      sessionExpired: "Tu sesión venció. Volvé a ingresar.",
+      assistantFailed: "El asistente tuvo un problema y no pudo responder. Probá de nuevo en unos segundos.",
+      genericError: "Algo salió mal. Probá de nuevo.",
+      noConnection: "No se pudo conectar con el servidor.",
+    };
+
+    function showLogin(message = "") {
       document.getElementById("chat-view").classList.add("hidden");
       document.getElementById("login-view").classList.remove("hidden");
-      document.getElementById("login-error").textContent = errorText;
+      document.getElementById("login-error").textContent = message;
     }
 
     function showChat() {
@@ -144,11 +157,7 @@
     }
 
     function greet() {
-      addMessage(
-        "Hola " + session.getItem("username") + ", puedo ayudarte a ver qué salas están libres, " +
-        "ver la agenda de una sala, reservar y cancelar tus reservas. ¿Qué necesitás?",
-        "assistant"
-      );
+      addMessage(MESSAGES.greeting(session.getItem("username")), "assistant");
     }
 
     async function login(event) {
@@ -161,13 +170,13 @@
         body: JSON.stringify({ username, password }),
       });
       if (!response.ok) {
-        showLogin("Usuario o contraseña inválidos.");
+        showLogin(MESSAGES.loginFailed);
         return;
       }
       const data = await response.json();
       session.setItem("token", data.access_token);
       session.setItem("username", username);
-      session.setItem("sessionId", crypto.randomUUID());
+      session.setItem("sessionId", newSessionId());
       showChat();
       greet();
     }
@@ -191,20 +200,32 @@
           body: JSON.stringify({ message: text, session_id: session.getItem("sessionId") }),
         });
         if (response.status === 401) {
-          logout("Tu sesión venció. Volvé a ingresar.");
+          logout(MESSAGES.sessionExpired);
+          return;
+        }
+        // Check the status before reading JSON: a CloudFront timeout (504) answers with HTML.
+        if (!response.ok) {
+          addMessage(errorText(response.status), "error");
           return;
         }
         const data = await response.json();
-        if (response.ok) {
-          addMessage(data.reply, "assistant");
-        } else {
-          addMessage(data.detail || "Algo salió mal. Probá de nuevo.", "error");
-        }
+        addMessage(data.reply, "assistant");
       } catch {
-        addMessage("No se pudo conectar con el servidor.", "error");
+        addMessage(MESSAGES.noConnection, "error");
       } finally {
         setWaiting(false);
       }
+    }
+
+    function errorText(status) {
+      if (status === 503 || status === 504) {
+        return MESSAGES.assistantFailed;
+      }
+      return MESSAGES.genericError;
+    }
+
+    function newSessionId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2);
     }
 
     function setWaiting(waiting) {
@@ -215,7 +236,7 @@
 
     function newConversation() {
       // A new session_id means a new thread on the server: the agent starts with no memory.
-      session.setItem("sessionId", crypto.randomUUID());
+      session.setItem("sessionId", newSessionId());
       document.getElementById("messages").innerHTML = "";
       greet();
     }
