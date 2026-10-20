@@ -2,8 +2,10 @@ import json
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from groq import RateLimitError
 from langchain_core.messages import AIMessage
 
 from app.booking import create_booking
@@ -29,6 +31,14 @@ class FakeModel:
 class FailingModel:
     def invoke(self, messages):
         raise RuntimeError("Groq is down")
+
+
+class RateLimitedModel:
+    """Fails like Groq when the daily token quota is used up."""
+
+    def invoke(self, messages):
+        response = httpx.Response(429, request=httpx.Request("POST", "https://api.groq.com"))
+        raise RateLimitError("Rate limit reached: tokens per day (TPD)", response=response, body=None)
 
 
 @pytest.fixture
@@ -143,3 +153,10 @@ def test_schedule_tells_my_bookings_from_other_users(client):
 
     assert state_at_10("User1") == {"A": "mine", "B": "taken", "C": "free", "D": "free", "E": "free"}
     assert state_at_10("User2") == {"A": "taken", "B": "mine", "C": "free", "D": "free", "E": "free"}
+
+
+def test_rate_limit_returns_429_not_503(client, monkeypatch):
+    monkeypatch.setattr("app.booking_agent.model", RateLimitedModel())
+    response = send(client, "User1")
+    assert response.status_code == 429
+    assert response.json()["detail"] == "The LLM provider rate limit was reached. Please try again later."
